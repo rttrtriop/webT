@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GitHub Pages Linux/Python Terminal</title>
+  
+  <!-- CSS библиотеки xterm.js -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css" />
+  
+  <style>
+    * { box-sizing: border-box; }
+    body, html {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      background-color: #0e1117;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      overflow: hidden;
+    }
+
+    #terminal-container {
+      width: 100vw;
+      height: 100vh;
+      padding: 10px;
+    }
+
+    /* Экраны и индикатор загрузки */
+    #loader-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      background: #0d1117;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 9999;
+      color: #c9d1d9;
+      transition: opacity 0.5s ease;
+    }
+
+    .loader-box {
+      width: 90%;
+      max-width: 450px;
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 12px;
+      padding: 24px;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+      text-align: center;
+    }
+
+    .loader-title {
+      font-size: 1.2rem;
+      font-weight: 600;
+      margin-bottom: 8px;
+      color: #58a6ff;
+    }
+
+    .loader-status {
+      font-size: 0.85rem;
+      color: #8b949e;
+      margin-bottom: 16px;
+      height: 20px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .progress-bar-bg {
+      width: 100%;
+      height: 12px;
+      background: #21262d;
+      border-radius: 6px;
+      overflow: hidden;
+      position: relative;
+    }
+
+    .progress-bar-fill {
+      width: 0%;
+      height: 100%;
+      background: linear-gradient(90deg, #238636, #2ea043);
+      border-radius: 6px;
+      transition: width 0.2s ease-out;
+    }
+
+    .progress-percent {
+      font-size: 1.5rem;
+      font-weight: bold;
+      margin-top: 12px;
+      color: #f0f6fc;
+    }
+  </style>
+
+  <!-- JS библиотеки Terminal и Pyodide -->
+  <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js"></script>
+  <script src="https://cdn.jsdelivr.net/pyodide/v0.26.2/full/pyodide.js"></script>
+</head>
+<body>
+
+  <!-- Загрузочный экран -->
+  <div id="loader-overlay">
+    <div class="loader-box">
+      <div class="loader-title">Запуск WebAssembly Linux/Python</div>
+      <div id="status" class="loader-status">Инициализация...</div>
+      <div class="progress-bar-bg">
+        <div id="progress-fill" class="progress-bar-fill"></div>
+      </div>
+      <div id="percent" class="progress-percent">0%</div>
+    </div>
+  </div>
+
+  <!-- Контейнер Терминала -->
+  <div id="terminal-container"></div>
+
+  <script>
+    const statusEl = document.getElementById('status');
+    const fillEl = document.getElementById('progress-fill');
+    const percentEl = document.getElementById('percent');
+    const loaderOverlay = document.getElementById('loader-overlay');
+
+    // Функция обтягивания процентов и UI
+    function updateProgress(percent, message) {
+      fillEl.style.width = percent + '%';
+      percentEl.innerText = percent + '%';
+      if (message) statusEl.innerText = message;
+    }
+
+    // Вспомогательная функция для подсчета реального прогресса скачивания фалов (в МБ)
+    async function fetchWithProgress(url, messagePrefix, startPct, endPct) {
+      const response = await fetch(url);
+      if (!response.ok) throw new Error(`Ошибка сети: ${response.statusText}`);
+      
+      const contentLength = response.headers.get('content-length');
+      if (!contentLength) {
+        updateProgress(endPct, messagePrefix);
+        return await response.arrayBuffer();
+      }
+
+      const total = parseInt(contentLength, 10);
+      let loaded = 0;
+      const reader = response.body.getReader();
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        loaded += value.length;
+        
+        const currentPct = Math.round(startPct + (loaded / total) * (endPct - startPct));
+        const loadedMB = (loaded / (1024 * 1024)).toFixed(1);
+        const totalMB = (total / (1024 * 1024)).toFixed(1);
+        
+        updateProgress(currentPct, `${messagePrefix} (${loadedMB} / ${totalMB} MB)`);
+      }
+    }
+
+    // Настройка терминала
+    const term = new Terminal({
+      cursorBlink: true,
+      theme: {
+        background: '#0e1117',
+        foreground: '#c9d1d9',
+        cursor: '#58a6ff',
+        selectionBackground: '#264f78'
+      },
+      fontFamily: 'Consolas, "Courier New", monospace',
+      fontSize: 14
+    });
+
+    term.open(document.getElementById('terminal-container'));
+
+    let pyodide;
+    let inputBuffer = '';
+    let commandHistory = [];
+    let historyIndex = -1;
+
+    async function startSystem() {
+      try {
+        const pyodideBaseUrl = "https://cdn.jsdelivr.net/pyodide/v0.26.2/full/";
+
+        // Этап 1: Загрузка WebAssembly ядро (Обычно ~10-15 МБ)
+        await fetchWithProgress(
+          pyodideBaseUrl + "pyodide.asm.wasm",
+          "Загрузка WASM модуля",
+          0, 60
+        );
+
+        // Этап 2: Загрузка Стандартной библиотеки Python
+        await fetchWithProgress(
+          pyodideBaseUrl + "python_stdlib.zip",
+          "Загрузка Python Stdlib",
+          60, 85
+        );
+
+        // Этап 3: Инициализация Pyodide
+        updateProgress(90, "Запуск виртуального окружения...");
+        pyodide = await loadPyodide({ indexURL: pyodideBaseUrl });
+
+        // Перенаправление вывода Python прямо в терминал
+        pyodide.setStdout({
+          batched: (msg) => term.writeln(msg)
+        });
+        pyodide.setStderr({
+          batched: (msg) => term.writeln(`\x1b[31m${msg}\x1b[0m`)
+        });
+
+        // Этап 4: Установка Менеджера Пакетов micropip (для pip install)
+        updateProgress(95, "Подготовка micropip (pip install)...");
+        await pyodide.loadPackage("micropip");
+
+        // Завершение загрузки
+        updateProgress(100, "Готово!");
+        setTimeout(() => {
+          loaderOverlay.style.opacity = '0';
+          setTimeout(() => loaderOverlay.remove(), 500);
+        }, 300);
+
+        // Приветствие в терминале
+        term.writeln('\x1b[32m====================================================\x1b[0m');
+        term.writeln('\x1b[1;36m Linux/Python WebAssembly Terminal (GitHub Pages)\x1b[0m');
+        term.writeln('\x1b[32m====================================================\x1b[0m');
+        term.writeln(' * Поддерживается: \x1b[33mpip install <package>\x1b[0m');
+        term.writeln(' * Команды: \x1b[33mclear\x1b[0m (очистка), \x1b[33mhelp\x1b[0m');
+        term.writeln('');
+        term.write('>>> ');
+
+        // Обработка пользовательского ввода
+        term.onData(handleTerminalInput);
+
+      } catch (err) {
+        updateProgress(0, "Ошибка загрузки!");
+        statusEl.style.color = "#f85149";
+        statusEl.innerText = err.message;
+      }
+    }
+
+    async function handleTerminalInput(e) {
+      switch (e) {
+        case '\r': // ENTER
+          term.writeln('');
+          const cmd = inputBuffer.trim();
+          if (cmd.length > 0) {
+            commandHistory.push(cmd);
+            historyIndex = commandHistory.length;
+            await processCommand(cmd);
+          }
+          inputBuffer = '';
+          term.write('>>> ');
+          break;
+
+        case '\u007F': // BACKSPACE
+          if (inputBuffer.length > 0) {
+            inputBuffer = inputBuffer.slice(0, -1);
+            term.write('\b \b');
+          }
+          break;
+
+        case '\u001b[A': // Стрелка ВВЕРХ (История)
+          if (historyIndex > 0) {
+            historyIndex--;
+            clearCurrentInput();
+            inputBuffer = commandHistory[historyIndex];
+            term.write(inputBuffer);
+          }
+          break;
+
+        case '\u001b[B': // Стрелка ВНИЗ (История)
+          if (historyIndex < commandHistory.length - 1) {
+            historyIndex++;
+            clearCurrentInput();
+            inputBuffer = commandHistory[historyIndex];
+            term.write(inputBuffer);
+          } else if (historyIndex === commandHistory.length - 1) {
+            historyIndex++;
+            clearCurrentInput();
+            inputBuffer = '';
+          }
+          break;
+
+        default: // Обычные символы
+          if (e >= ' ' || e === '\t') {
+            inputBuffer += e;
+            term.write(e);
+          }
+      }
+    }
+
+    function clearCurrentInput() {
+      while (inputBuffer.length > 0) {
+        term.write('\b \b');
+        inputBuffer = inputBuffer.slice(0, -1);
+      }
+    }
+
+    async function processCommand(cmd) {
+      if (cmd === 'clear' || cmd === 'cls') {
+        term.clear();
+        return;
+      }
+
+      // Обработка команды pip install
+      if (cmd.startsWith('pip install ')) {
+        const pkg = cmd.replace('pip install ', '').trim();
+        term.writeln(`\x1b[33mУстановка ${pkg} через micropip...\x1b[0m`);
+        try {
+          const micropip = pyodide.pyimport("micropip");
+          await micropip.install(pkg);
+          term.writeln(`\x1b[32m[Успех] Пакет '${pkg}' успешно установлен!\x1b[0m`);
+        } catch (err) {
+          term.writeln(`\x1b[31m[Ошибка pip]: ${err.message}\x1b[0m`);
+        }
+        return;
+      }
+
+      // Выполнение Python кода
+      try {
+        let result = await pyodide.runPythonAsync(cmd);
+        if (result !== undefined) {
+          term.writeln(String(result));
+        }
+      } catch (err) {
+        term.writeln(`\x1b[31m${err.message}\x1b[0m`);
+      }
+    }
+
+    // Старт системы
+    startSystem();
+  </script>
+</body>
+</html>
+
