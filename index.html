@@ -2,14 +2,14 @@
 <html lang="ru">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>GitHub Pages Linux/Python Terminal</title>
   
   <!-- CSS библиотеки xterm.js -->
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css" />
   
   <style>
-    * { box-sizing: border-box; }
+    * { box-sizing: border-box; touch-action: manipulation; }
     body, html {
       margin: 0;
       padding: 0;
@@ -18,15 +18,124 @@
       background-color: #0e1117;
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
       overflow: hidden;
+      display: flex;
+      flex-direction: column;
     }
 
+    /* Верхняя панель управления */
+    #top-bar {
+      height: 48px;
+      background: #161b22;
+      border-bottom: 1px solid #30363d;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 12px;
+      z-index: 10;
+    }
+
+    .app-title {
+      color: #58a6ff;
+      font-weight: 600;
+      font-size: 0.9rem;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .btn-group {
+      display: flex;
+      gap: 8px;
+    }
+
+    .action-btn {
+      background: #21262d;
+      color: #c9d1d9;
+      border: 1px solid #30363d;
+      border-radius: 6px;
+      padding: 6px 12px;
+      font-size: 0.8rem;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      transition: background 0.2s, border-color 0.2s;
+    }
+
+    .action-btn:active, .action-btn:hover {
+      background: #30363d;
+      border-color: #8b949e;
+      color: #fff;
+    }
+
+    /* Контейнер терминала */
     #terminal-container {
-      width: 100vw;
-      height: 100vh;
-      padding: 10px;
+      flex: 1;
+      width: 100%;
+      padding: 8px;
+      background: #0e1117;
+      position: relative;
     }
 
-    /* Экраны и индикатор загрузки */
+    /* Мобильная панель быстрых клавиш */
+    #mobile-toolbar {
+      height: 44px;
+      background: #161b22;
+      border-top: 1px solid #30363d;
+      display: flex;
+      align-items: center;
+      justify-content: space-around;
+      padding: 4px 8px;
+      gap: 6px;
+    }
+
+    .key-btn {
+      flex: 1;
+      height: 100%;
+      background: #21262d;
+      color: #f0f6fc;
+      border: 1px solid #30363d;
+      border-radius: 6px;
+      font-weight: 600;
+      font-size: 0.85rem;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      user-select: none;
+      -webkit-user-select: none;
+      cursor: pointer;
+    }
+
+    .key-btn:active {
+      background: #1f6feb;
+      border-color: #388bfd;
+    }
+
+    /* Всплывающее уведомление (Toast) */
+    #toast {
+      position: fixed;
+      top: 60px;
+      right: 20px;
+      background: #238636;
+      color: #fff;
+      padding: 8px 16px;
+      border-radius: 6px;
+      font-size: 0.85rem;
+      font-weight: 500;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+      opacity: 0;
+      transform: translateY(-10px);
+      transition: opacity 0.3s, transform 0.3s;
+      pointer-events: none;
+      z-index: 10000;
+    }
+
+    #toast.show {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    /* Экран загрузки */
     #loader-overlay {
       position: fixed;
       top: 0;
@@ -45,7 +154,7 @@
 
     .loader-box {
       width: 90%;
-      max-width: 450px;
+      max-width: 420px;
       background: #161b22;
       border: 1px solid #30363d;
       border-radius: 12px;
@@ -55,7 +164,7 @@
     }
 
     .loader-title {
-      font-size: 1.2rem;
+      font-size: 1.1rem;
       font-weight: 600;
       margin-bottom: 8px;
       color: #58a6ff;
@@ -73,11 +182,10 @@
 
     .progress-bar-bg {
       width: 100%;
-      height: 12px;
+      height: 10px;
       background: #21262d;
       border-radius: 6px;
       overflow: hidden;
-      position: relative;
     }
 
     .progress-bar-fill {
@@ -89,15 +197,16 @@
     }
 
     .progress-percent {
-      font-size: 1.5rem;
+      font-size: 1.4rem;
       font-weight: bold;
       margin-top: 12px;
       color: #f0f6fc;
     }
   </style>
 
-  <!-- JS библиотеки Terminal и Pyodide -->
+  <!-- Библиотеки xterm, fit-addon и Pyodide -->
   <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js"></script>
   <script src="https://cdn.jsdelivr.net/pyodide/v0.26.2/full/pyodide.js"></script>
 </head>
 <body>
@@ -114,23 +223,54 @@
     </div>
   </div>
 
-  <!-- Контейнер Терминала -->
-  <div id="terminal-container"></div>
+  <!-- Всплывашка копирования -->
+  <div id="toast">Текст скопирован!</div>
+
+  <!-- Шапка -->
+  <div id="top-bar">
+    <div class="app-title">
+      <span>🐍</span> Python Terminal
+    </div>
+    <div class="btn-group">
+      <button class="action-btn" onclick="copyConsole()">
+        📋 <span>Копировать</span>
+      </button>
+      <button class="action-btn" onclick="clearTerminal()">
+        🧹 <span>Очистить</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- Терминал -->
+  <div id="terminal-container" onclick="focusTerminal()"></div>
+
+  <!-- Мобильная панель быстрой навигации -->
+  <div id="mobile-toolbar">
+    <button class="key-btn" onclick="sendKey('UP')">▲ История</button>
+    <button class="key-btn" onclick="sendKey('DOWN')">▼ История</button>
+    <button class="key-btn" onclick="sendKey('TAB')">Tab</button>
+    <button class="key-btn" onclick="sendKey('ENTER')">Enter ↵</button>
+  </div>
 
   <script>
     const statusEl = document.getElementById('status');
     const fillEl = document.getElementById('progress-fill');
     const percentEl = document.getElementById('percent');
     const loaderOverlay = document.getElementById('loader-overlay');
+    const toastEl = document.getElementById('toast');
 
-    // Функция обтягивания процентов и UI
+    function showToast(message) {
+      toastEl.innerText = message;
+      toastEl.classList.add('show');
+      setTimeout(() => toastEl.classList.remove('show'), 2000);
+    }
+
     function updateProgress(percent, message) {
       fillEl.style.width = percent + '%';
       percentEl.innerText = percent + '%';
       if (message) statusEl.innerText = message;
     }
 
-    // Вспомогательная функция для подсчета реального прогресса скачивания фалов (в МБ)
     async function fetchWithProgress(url, messagePrefix, startPct, endPct) {
       const response = await fetch(url);
       if (!response.ok) throw new Error(`Ошибка сети: ${response.statusText}`);
@@ -158,7 +298,7 @@
       }
     }
 
-    // Настройка терминала
+    // Настройка xterm.js и FitAddon для авторазмера
     const term = new Terminal({
       cursorBlink: true,
       theme: {
@@ -168,10 +308,22 @@
         selectionBackground: '#264f78'
       },
       fontFamily: 'Consolas, "Courier New", monospace',
-      fontSize: 14
+      fontSize: window.innerWidth < 600 ? 12 : 14
     });
 
+    const fitAddon = new FitAddon.FitAddon();
+    term.loadAddon(fitAddon);
     term.open(document.getElementById('terminal-container'));
+    fitAddon.fit();
+
+    // Авто-подгонка под размер экрана смартфона/планшета при повороте
+    window.addEventListener('resize', () => {
+      fitAddon.fit();
+    });
+
+    function focusTerminal() {
+      term.focus();
+    }
 
     let pyodide;
     let inputBuffer = '';
@@ -182,44 +334,26 @@
       try {
         const pyodideBaseUrl = "https://cdn.jsdelivr.net/pyodide/v0.26.2/full/";
 
-        // Этап 1: Загрузка WebAssembly ядро (Обычно ~10-15 МБ)
-        await fetchWithProgress(
-          pyodideBaseUrl + "pyodide.asm.wasm",
-          "Загрузка WASM модуля",
-          0, 60
-        );
+        await fetchWithProgress(pyodideBaseUrl + "pyodide.asm.wasm", "Загрузка WASM модуля", 0, 60);
+        await fetchWithProgress(pyodideBaseUrl + "python_stdlib.zip", "Загрузка Python Stdlib", 60, 85);
 
-        // Этап 2: Загрузка Стандартной библиотеки Python
-        await fetchWithProgress(
-          pyodideBaseUrl + "python_stdlib.zip",
-          "Загрузка Python Stdlib",
-          60, 85
-        );
-
-        // Этап 3: Инициализация Pyodide
         updateProgress(90, "Запуск виртуального окружения...");
         pyodide = await loadPyodide({ indexURL: pyodideBaseUrl });
 
-        // Перенаправление вывода Python прямо в терминал
-        pyodide.setStdout({
-          batched: (msg) => term.writeln(msg)
-        });
-        pyodide.setStderr({
-          batched: (msg) => term.writeln(`\x1b[31m${msg}\x1b[0m`)
-        });
+        pyodide.setStdout({ batched: (msg) => term.writeln(msg) });
+        pyodide.setStderr({ batched: (msg) => term.writeln(`\x1b[31m${msg}\x1b[0m`) });
 
-        // Этап 4: Установка Менеджера Пакетов micropip (для pip install)
         updateProgress(95, "Подготовка micropip (pip install)...");
         await pyodide.loadPackage("micropip");
 
-        // Завершение загрузки
         updateProgress(100, "Готово!");
         setTimeout(() => {
           loaderOverlay.style.opacity = '0';
           setTimeout(() => loaderOverlay.remove(), 500);
+          fitAddon.fit();
+          term.focus();
         }, 300);
 
-        // Приветствие в терминале
         term.writeln('\x1b[32m====================================================\x1b[0m');
         term.writeln('\x1b[1;36m Linux/Python WebAssembly Terminal (GitHub Pages)\x1b[0m');
         term.writeln('\x1b[32m====================================================\x1b[0m');
@@ -228,7 +362,6 @@
         term.writeln('');
         term.write('>>> ');
 
-        // Обработка пользовательского ввода
         term.onData(handleTerminalInput);
 
       } catch (err) {
@@ -238,6 +371,7 @@
       }
     }
 
+    // Обработка клавиш (как физических, так и сенсорных)
     async function handleTerminalInput(e) {
       switch (e) {
         case '\r': // ENTER
@@ -259,33 +393,39 @@
           }
           break;
 
-        case '\u001b[A': // Стрелка ВВЕРХ (История)
-          if (historyIndex > 0) {
-            historyIndex--;
-            clearCurrentInput();
-            inputBuffer = commandHistory[historyIndex];
-            term.write(inputBuffer);
-          }
+        case '\u001b[A': // Стрелка ВВЕРХ
+          navigateHistory('UP');
           break;
 
-        case '\u001b[B': // Стрелка ВНИЗ (История)
-          if (historyIndex < commandHistory.length - 1) {
-            historyIndex++;
-            clearCurrentInput();
-            inputBuffer = commandHistory[historyIndex];
-            term.write(inputBuffer);
-          } else if (historyIndex === commandHistory.length - 1) {
-            historyIndex++;
-            clearCurrentInput();
-            inputBuffer = '';
-          }
+        case '\u001b[B': // Стрелка ВНИЗ
+          navigateHistory('DOWN');
           break;
 
-        default: // Обычные символы
+        default:
           if (e >= ' ' || e === '\t') {
             inputBuffer += e;
             term.write(e);
           }
+      }
+    }
+
+    function navigateHistory(direction) {
+      if (direction === 'UP' && historyIndex > 0) {
+        historyIndex--;
+        clearCurrentInput();
+        inputBuffer = commandHistory[historyIndex];
+        term.write(inputBuffer);
+      } else if (direction === 'DOWN') {
+        if (historyIndex < commandHistory.length - 1) {
+          historyIndex++;
+          clearCurrentInput();
+          inputBuffer = commandHistory[historyIndex];
+          term.write(inputBuffer);
+        } else if (historyIndex === commandHistory.length - 1) {
+          historyIndex++;
+          clearCurrentInput();
+          inputBuffer = '';
+        }
       }
     }
 
@@ -296,27 +436,120 @@
       }
     }
 
+    // Мобильная панель быстрых нажатий
+    function sendKey(key) {
+      term.focus();
+      if (key === 'UP') navigateHistory('UP');
+      if (key === 'DOWN') navigateHistory('DOWN');
+      if (key === 'TAB') { inputBuffer += '    '; term.write('    '); }
+      if (key === 'ENTER') handleTerminalInput('\r');
+    }
+
+    // Функция копирования содержимого консоли
+    async function copyConsole() {
+      const buffer = term.buffer.active;
+      let lines = [];
+      for (let i = 0; i < buffer.length; i++) {
+        const line = buffer.getLine(i);
+        if (line) lines.push(line.translateToString(true));
+      }
+      const fullText = lines.join('\n').trimEnd();
+
+      try {
+        await navigator.clipboard.writeText(fullText);
+        showToast('Текст консоли скопирован!');
+      } catch (err) {
+        // Запасной фоллбэк для старых мобильных браузеров
+        const textarea = document.createElement('textarea');
+        textarea.value = fullText;
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textarea);
+        showToast('Текст консоли скопирован!');
+      }
+    }
+
+    function clearTerminal() {
+      term.clear();
+      inputBuffer = '';
+      term.write('>>> ');
+      term.focus();
+    }
+
+    // Перехват трафика pip для отображения прогресс-бара скачивания
+    async function installPackageWithProgress(pkg) {
+      term.writeln(`\x1b[33mПоиск и скачивание пакета ${pkg}...\x1b[0m`);
+      const originalFetch = window.fetch;
+
+      window.fetch = async function(...args) {
+        const response = await originalFetch(...args);
+        const url = args[0] ? (typeof args[0] === 'string' ? args[0] : args[0].url) : '';
+
+        if (url.endsWith('.whl') || url.endsWith('.zip') || url.includes('files.pythonhosted.org')) {
+          const contentLength = response.headers.get('content-length');
+          if (contentLength && response.body) {
+            const total = parseInt(contentLength, 10);
+            let loaded = 0;
+            const reader = response.body.getReader();
+
+            const stream = new ReadableStream({
+              async start(controller) {
+                while (true) {
+                  const { done, value } = await reader.read();
+                  if (done) {
+                    controller.close();
+                    break;
+                  }
+                  loaded += value.length;
+                  const pct = Math.round((loaded / total) * 100);
+                  const loadedMB = (loaded / (1024 * 1024)).toFixed(2);
+                  const totalMB = (total / (1024 * 1024)).toFixed(2);
+
+                  const barLength = window.innerWidth < 600 ? 10 : 20;
+                  const filled = Math.round((barLength * pct) / 100);
+                  const bar = '='.repeat(filled) + (filled < barLength ? '>' : '') + ' '.repeat(Math.max(0, barLength - filled - (filled < barLength ? 1 : 0)));
+                  
+                  term.write(`\r\x1b[K [Pip] [${bar}] ${pct}% (${loadedMB}/${totalMB} MB)`);
+                  controller.enqueue(value);
+                }
+                term.writeln('');
+              }
+            });
+
+            return new Response(stream, {
+              status: response.status,
+              statusText: response.statusText,
+              headers: response.headers
+            });
+          }
+        }
+        return response;
+      };
+
+      try {
+        const micropip = pyodide.pyimport("micropip");
+        await micropip.install(pkg);
+        term.writeln(`\x1b[32m[Успех] Пакет '${pkg}' успешно установлен!\x1b[0m`);
+      } catch (err) {
+        term.writeln(`\r\x1b[31m[Ошибка pip]: ${err.message}\x1b[0m`);
+      } finally {
+        window.fetch = originalFetch;
+      }
+    }
+
     async function processCommand(cmd) {
       if (cmd === 'clear' || cmd === 'cls') {
-        term.clear();
+        clearTerminal();
         return;
       }
 
-      // Обработка команды pip install
       if (cmd.startsWith('pip install ')) {
         const pkg = cmd.replace('pip install ', '').trim();
-        term.writeln(`\x1b[33mУстановка ${pkg} через micropip...\x1b[0m`);
-        try {
-          const micropip = pyodide.pyimport("micropip");
-          await micropip.install(pkg);
-          term.writeln(`\x1b[32m[Успех] Пакет '${pkg}' успешно установлен!\x1b[0m`);
-        } catch (err) {
-          term.writeln(`\x1b[31m[Ошибка pip]: ${err.message}\x1b[0m`);
-        }
+        await installPackageWithProgress(pkg);
         return;
       }
 
-      // Выполнение Python кода
       try {
         let result = await pyodide.runPythonAsync(cmd);
         if (result !== undefined) {
@@ -327,9 +560,7 @@
       }
     }
 
-    // Старт системы
     startSystem();
   </script>
 </body>
 </html>
-
